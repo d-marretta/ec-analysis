@@ -12,7 +12,7 @@ from pymongo.server_api import ServerApi
 
 SCROLL_AMOUNT=800
 
-def get_tweet_data(container):
+def get_tweet_data(container, query):
     
     username = container.find_element(By.XPATH, './/div[@data-testid="User-Name"]//span[not(contains(text(), "@"))]').text
     tag = container.find_element(By.XPATH, './/div[@data-testid="User-Name"]//span[contains(text(), "@")]').text
@@ -30,6 +30,7 @@ def get_tweet_data(container):
     
     tweet = {
         '_id':(tag+tweet_date),
+        'keyword':query,
         'username':username,
         'tag':tag,
         'date':tweet_date,
@@ -95,7 +96,7 @@ def search_tweets(query, max_tweets, coll):
     while scrolling:
         tweet_containers = driver.find_elements(By.XPATH, '//article[@data-testid="tweet"]')
         for container in tweet_containers:
-            tweet_data = get_tweet_data(container=container)
+            tweet_data = get_tweet_data(container=container, query=query)
             if tweet_data:
                 tweet_id = tweet_data['_id']
 
