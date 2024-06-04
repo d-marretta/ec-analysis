@@ -1,3 +1,5 @@
 .env
 .venv/
-auth.pkl
+auth_x.pkl
+auth_facebook.pkl
+facebook_posts/

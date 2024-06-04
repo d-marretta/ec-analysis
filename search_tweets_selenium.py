@@ -68,7 +68,7 @@ def search_tweets(query, max_tweets, coll):
     driver.get("https://www.x.com/")
 
     # Get logins cookies
-    cookies = pickle.load(open("auth.pkl", "rb"))
+    cookies = pickle.load(open("auth_x.pkl", "rb"))
     for cookie in cookies:
         driver.add_cookie(cookie)
     driver.get("https://www.x.com/")
