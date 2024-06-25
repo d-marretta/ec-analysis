@@ -8,6 +8,7 @@ import pickle
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 import json
+import string
 
 def parse_date_str(date):
     date_l = date.split(" ")
@@ -30,7 +31,8 @@ def parse_date_str(date):
     except ValueError:
         year = datetime.today().strftime("%y")
 
-    date_str = date_l[0]+'-'+month_num+'-'+year
+    day_num = '0'+date_l[0] if int(date_l[0]) <= 9 else date_l[0]
+    date_str = day_num+'-'+month_num+'-'+year
     return date_str
 
 def get_post_data(driver, url, query):
@@ -43,10 +45,9 @@ def get_post_data(driver, url, query):
     text_ps = driver.find_elements(By.XPATH, '//p')
     text = ""
     for p in text_ps:
-        text += p.text
-        spans = p.find_elements(By.XPATH, './/span')
-        for span in spans:
-            text += span.text
+        filtered_p = "".join(filter(lambda s: s.isalnum() or s.isspace() or (s in string.punctuation), p.text))
+        text += filtered_p
+        
     
     post = {
         'id':url,
@@ -68,7 +69,7 @@ def get_full_post_url(container):
 
 def get_full_urls(driver, max_posts):
     full_post_urls = []
-    url_counter = 1
+    url_counter = 0
     while True:
         post_containers = driver.find_elements(By.XPATH, '//article')
         for container in post_containers:
@@ -113,7 +114,7 @@ def search_posts(query, max_posts):
     print(f'Page url: {url}')
     print(f'Keyword: {query}\n')
 
-    post_counter = 1
+    post_counter = 0
     post_datas = []   # List of dicts, each dict will be data of a post
 
     full_post_urls = get_full_urls(driver, max_posts)
@@ -141,7 +142,7 @@ def main():
     # Connect to database
     load_dotenv()
 
-    search_posts('energy communities', 20)
+    search_posts('energy communities', 10)
 
 main()
 
