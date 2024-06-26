@@ -2,13 +2,15 @@ import urllib.parse
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import NoSuchElementException
-import time
+from time import sleep
 from selenium.webdriver.common.by import By
 import pickle
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 import json
-import string
+from string import punctuation
+from os import listdir
+from os.path import isfile
 
 def parse_date_str(date):
     date_l = date.split(" ")
@@ -45,12 +47,13 @@ def get_post_data(driver, url, query):
     text_ps = driver.find_elements(By.XPATH, '//p')
     text = ""
     for p in text_ps:
-        filtered_p = "".join(filter(lambda s: s.isalnum() or s.isspace() or (s in string.punctuation), p.text))
+        filtered_p = "".join(filter(lambda s: s.isalnum() or s.isspace() or (s in punctuation), p.text))
         text += filtered_p
         
     
     post = {
-        'id':url,
+        'id':url.split('&eav')[0],
+        'url':url,
         'keyword':query,
         'username':username,
         'date':post_date_str,
@@ -67,7 +70,7 @@ def get_full_post_url(container):
         url = ""
     return url
 
-def get_full_urls(driver, max_posts):
+def get_full_urls(driver, max_posts, post_ids):
     full_post_urls = []
     url_counter = 0
     while True:
@@ -78,15 +81,18 @@ def get_full_urls(driver, max_posts):
                 return full_post_urls
             
             full_post_url = get_full_post_url(container)
-            if full_post_url:
+            if full_post_url and (full_post_url.split('&eav')[0] not in post_ids):
                 full_post_urls.append(full_post_url)
                 url_counter += 1
+
         next_results_url = driver.find_element(By.XPATH, '//div[@id="see_more_pager"]/a').get_attribute('href')
+        if not next_results_url:
+            break
         driver.get(next_results_url)
-        time.sleep(1)
+        sleep(1)
 
 
-def search_posts(query, max_posts):
+def search_posts(query, max_posts, post_ids, nfiles):
     # Start chrom webdriver
     options = Options()
     options.add_argument('--headless')
@@ -102,13 +108,13 @@ def search_posts(query, max_posts):
     driver.get("https://www.facebook.com/")
 
     driver.implicitly_wait(2)
-    time.sleep(1)
+    sleep(1)
 
     # Allow the page to load
     url = urllib.parse.quote(string=f"https://mbasic.facebook.com/search/posts/?q={query}", safe='/&?=:')
     driver.get(url)
     driver.maximize_window()
-    time.sleep(3)
+    sleep(3)
 
     print('Scraping started')
     print(f'Page url: {url}')
@@ -117,11 +123,11 @@ def search_posts(query, max_posts):
     post_counter = 0
     post_datas = []   # List of dicts, each dict will be data of a post
 
-    full_post_urls = get_full_urls(driver, max_posts)
+    full_post_urls = get_full_urls(driver, max_posts, post_ids)
     
     for url in full_post_urls:
         driver.get(url)
-        time.sleep(1)
+        sleep(1)
         post_data = get_post_data(driver, url, query)
             
         if post_data:
@@ -131,18 +137,33 @@ def search_posts(query, max_posts):
             print(f'\rGot {post_counter} post(s) out of {max_posts}', end="")
 
     print()
-    for i, data in enumerate(post_datas):
-        with open('facebook_posts/post_'+str(i)+'.json', mode='w', encoding='utf-8') as outjson:
+    for data in post_datas:
+        with open('facebook_posts/post_'+str(nfiles)+'.json', mode='w', encoding='utf-8') as outjson:
             json.dump(data, outjson, indent=2)
+        nfiles += 1
 
     driver.close()
 
+def get_urls_set(d):
+    post_ids = set()
+    nfiles = 0
 
-def main():
-    # Connect to database
+    for file in listdir(d):
+        full_path = d+'/'+file
+        if isfile(full_path):
+            with open(full_path, 'r', encoding='utf-8') as post_json:
+                post_data = json.load(post_json)
+                id = post_data["id"].split('&eav')[0]
+                post_ids.add(id)
+            nfiles += 1
+    return nfiles, post_ids
+
+def main(): 
     load_dotenv()
-
-    search_posts('energy communities', 10)
+    POSTS_DIR = './facebook_posts'
+    nfiles, post_ids = get_urls_set(POSTS_DIR)
+    print('Already collected: '+nfiles+' files')
+    search_posts('energy communities', 10, post_ids, nfiles)
 
 main()
 
