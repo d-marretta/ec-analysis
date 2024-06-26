@@ -38,17 +38,31 @@ def parse_date_str(date):
     return date_str
 
 def get_post_data(driver, url, query):
+    try:
+        username = driver.find_element(By.XPATH, '//h3//a').text
+    except NoSuchElementException:
+        print('Could not find username, skipping post; Url: ' + url)
+        return None
     
-    username = driver.find_element(By.XPATH, '//h3//a').text
-    post_date_str = driver.find_element(By.XPATH, '//footer//abbr').text
-    post_date_str = parse_date_str(post_date_str)
+    try:
+        post_date_str = driver.find_element(By.XPATH, '//footer//abbr').text
+    except NoSuchElementException:
+        print('Could not find date; Url: ' + url)
+        post_date_str = ""
+    if post_date_str:
+        post_date_str = parse_date_str(post_date_str)
 
     # Get all the text of the post
-    text_ps = driver.find_elements(By.XPATH, '//p')
+    try:
+        text_ps = driver.find_elements(By.XPATH, '//p')
+    except NoSuchElementException:
+        print('Could not find text; Url: ' + url)
+
     text = ""
-    for p in text_ps:
-        filtered_p = "".join(filter(lambda s: s.isalnum() or s.isspace() or (s in punctuation), p.text))
-        text += filtered_p
+    if text_ps:
+        for p in text_ps:
+            filtered_p = "".join(filter(lambda s: s.isalnum() or s.isspace() or (s in punctuation), p.text))
+            text += filtered_p
         
     
     post = {
@@ -84,34 +98,19 @@ def get_full_urls(driver, max_posts, post_ids):
             if full_post_url and (full_post_url.split('&eav')[0] not in post_ids):
                 full_post_urls.append(full_post_url)
                 url_counter += 1
-
-        next_results_url = driver.find_element(By.XPATH, '//div[@id="see_more_pager"]/a').get_attribute('href')
-        if not next_results_url:
-            break
+        try:
+            next_results_url = driver.find_element(By.XPATH, '//div[@id="see_more_pager"]/a').get_attribute('href')
+        except NoSuchElementException:
+            print(f'\nCollected {url_counter} urls')
+            return full_post_urls
+        
         driver.get(next_results_url)
         sleep(1)
 
 
-def search_posts(query, max_posts, post_ids, nfiles):
-    # Start chrom webdriver
-    options = Options()
-    options.add_argument('--headless')
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    driver = webdriver.Chrome(options=options)
-    driver.get("https://www.facebook.com/")
-
-    # Get logins cookies
-    cookies = pickle.load(open("auth_facebook.pkl", "rb"))
-    for cookie in cookies:
-        driver.add_cookie(cookie)
-    driver.get("https://www.facebook.com/")
-
-    driver.implicitly_wait(2)
-    sleep(1)
+def search_posts(driver, url, query, max_posts, post_ids, nfiles):
 
     # Allow the page to load
-    url = urllib.parse.quote(string=f"https://mbasic.facebook.com/search/posts/?q={query}", safe='/&?=:')
     driver.get(url)
     driver.maximize_window()
     sleep(3)
@@ -158,12 +157,40 @@ def get_urls_set(d):
             nfiles += 1
     return nfiles, post_ids
 
+def setup():
+    # Start chrom webdriver
+    options = Options()
+    options.add_argument('--headless')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    driver = webdriver.Chrome(options=options)
+    driver.get("https://www.facebook.com/")
+
+    # Get logins cookies
+    cookies = pickle.load(open("auth_facebook.pkl", "rb"))
+    for cookie in cookies:
+        driver.add_cookie(cookie)
+    driver.get("https://www.facebook.com/")
+
+    driver.implicitly_wait(2)
+    sleep(1)
+    return driver
+
 def main(): 
     load_dotenv()
     POSTS_DIR = './facebook_posts'
+    driver = setup()
+
     nfiles, post_ids = get_urls_set(POSTS_DIR)
-    print('Already collected: '+nfiles+' files')
-    search_posts('energy communities', 10, post_ids, nfiles)
+    print('Already collected: '+str(nfiles)+' files')
+
+    keywords = ['Citizen Energy Communities','Renewable Energy Cooperatives','Energy Cooperatives','Energy communities','Community energy projects','Local energy initiatives','Renewable energy cooperatives','Community-owned energy','Distributed energy resources','Energy sharing schemes']
+    for keyword in keywords:
+        url = urllib.parse.quote(string=f"https://mbasic.facebook.com/search/top/?q={keyword}", safe='/&?=:')
+        search_posts(driver, url, keyword, 1000, post_ids, nfiles)
+
+        url = urllib.parse.quote(string=f"https://mbasic.facebook.com/search/posts/?q={keyword}", safe='/&?=:')
+        search_posts(driver, url, keyword, 1000, post_ids, nfiles)
 
 main()
 
