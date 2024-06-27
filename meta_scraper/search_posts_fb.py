@@ -49,6 +49,7 @@ def get_post_data(driver, url, query):
     except NoSuchElementException:
         print('Could not find date; Url: ' + url)
         post_date_str = ""
+
     if post_date_str:
         post_date_str = parse_date_str(post_date_str)
 
@@ -61,8 +62,7 @@ def get_post_data(driver, url, query):
     text = ""
     if text_ps:
         for p in text_ps:
-            filtered_p = "".join(filter(lambda s: s.isalnum() or s.isspace() or (s in punctuation), p.text))
-            text += filtered_p
+            text += p
         
     
     post = {
@@ -104,33 +104,31 @@ def get_full_urls(driver, max_posts, post_ids):
             print(f'\nCollected {url_counter} urls')
             return full_post_urls
         
+        sleep(3)
         driver.get(next_results_url)
-        sleep(1)
 
 
 def search_posts(driver, url, query, max_posts, post_ids, nfiles):
 
     # Allow the page to load
     driver.get(url)
-    driver.maximize_window()
-    sleep(3)
+    sleep(5)
 
-    print('Scraping started')
     print(f'Page url: {url}')
     print(f'Keyword: {query}\n')
 
     post_counter = 0
     post_datas = []   # List of dicts, each dict will be data of a post
-
+    session_urls = []
     full_post_urls = get_full_urls(driver, max_posts, post_ids)
     
     for url in full_post_urls:
         driver.get(url)
-        sleep(1)
+        sleep(10)
         post_data = get_post_data(driver, url, query)
             
         if post_data:
-            # Check if the document is already in the db or in the ids list of current scraping session
+            #if
             post_datas.append(post_data)
             post_counter += 1
             print(f'\rGot {post_counter} post(s) out of {max_posts}', end="")
@@ -141,7 +139,6 @@ def search_posts(driver, url, query, max_posts, post_ids, nfiles):
             json.dump(data, outjson, indent=2)
         nfiles += 1
 
-    driver.close()
 
 def get_urls_set(d):
     post_ids = set()
@@ -160,7 +157,7 @@ def get_urls_set(d):
 def setup():
     # Start chrom webdriver
     options = Options()
-    options.add_argument('--headless')
+    #options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     driver = webdriver.Chrome(options=options)
@@ -173,7 +170,11 @@ def setup():
     driver.get("https://www.facebook.com/")
 
     driver.implicitly_wait(2)
-    sleep(1)
+    driver.maximize_window()
+
+    sleep(2)
+    print('Scraping started')
+
     return driver
 
 def main(): 
@@ -187,10 +188,12 @@ def main():
     keywords = ['Citizen Energy Communities','Renewable Energy Cooperatives','Energy Cooperatives','Energy communities','Community energy projects','Local energy initiatives','Renewable energy cooperatives','Community-owned energy','Distributed energy resources','Energy sharing schemes']
     for keyword in keywords:
         url = urllib.parse.quote(string=f"https://mbasic.facebook.com/search/top/?q={keyword}", safe='/&?=:')
-        search_posts(driver, url, keyword, 1000, post_ids, nfiles)
+        search_posts(driver, url, keyword, 300, post_ids, nfiles)
 
         url = urllib.parse.quote(string=f"https://mbasic.facebook.com/search/posts/?q={keyword}", safe='/&?=:')
-        search_posts(driver, url, keyword, 1000, post_ids, nfiles)
+        search_posts(driver, url, keyword, 300, post_ids, nfiles)
+    
+    driver.close()
 
 main()
 

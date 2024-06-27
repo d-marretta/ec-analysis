@@ -7,24 +7,40 @@ import pickle
 from dotenv import load_dotenv
 import os
 import json
+from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException
 
 SCROLL_AMOUNT=800
 
 def get_tweet_data(container, query):
-    
-    username = container.find_element(By.XPATH, './/div[@data-testid="User-Name"]//span[not(contains(text(), "@"))]').text
-    tag = container.find_element(By.XPATH, './/div[@data-testid="User-Name"]//span[contains(text(), "@")]').text
-    tweet_date = container.find_element(By.XPATH, './/time').get_attribute('datetime')
+    try:
+        username = container.find_element(By.XPATH, './/div[@data-testid="User-Name"]//span[not(contains(text(), "@"))]').text
+    except NoSuchElementException:
+        username = ""
 
+    try:    
+        tag = container.find_element(By.XPATH, './/div[@data-testid="User-Name"]//span[contains(text(), "@")]').text
+    except NoSuchElementException:
+        tag = ""
+
+    try:
+        tweet_date = container.find_element(By.XPATH, './/time').get_attribute('datetime')
+    except NoSuchElementException:
+        tweet_date = ""
+        
     if not tag or not tweet_date:
-        print("Couldn't get tag and/or post date, skipping tweet...")
         return {}
     
     # Get all the text of the tweet
-    text_spans = container.find_elements(By.XPATH, './/div[@data-testid="tweetText"]//span')
-    text = ""
-    for span in text_spans:
-        text += span.text
+    retry_stale = True
+    while retry_stale:
+        text_spans = container.find_elements(By.XPATH, './/div[@data-testid="tweetText"]//span')
+        text = ""
+        try:
+            for span in text_spans:
+                text += span.text
+            retry_stale = False
+        except StaleElementReferenceException:
+            continue
     
     tweet = {
         'id':(tag+tweet_date),
@@ -49,6 +65,7 @@ def scroll(driver, height, max_attempts, last_pos):
         if last_pos == curr_pos:
             # No scrolling happened, try again
             time.sleep(1)
+            attempt += 1
         else:
             # Return new last_position, new height to scroll to and 
             # whether scrolling is still true or false
@@ -56,31 +73,12 @@ def scroll(driver, height, max_attempts, last_pos):
     
     return curr_pos,False
 
-def search_tweets(query, max_tweets, save_dir, seen_ids, starting_n):
-    # Start chrom webdriver
-    options = Options()
-    options.add_argument('--headless')
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    driver = webdriver.Chrome(options=options)
-    driver.get("https://www.x.com/")
-
-    # Get logins cookies
-    cookies = pickle.load(open("../auth_x.pkl", "rb"))
-    for cookie in cookies:
-        driver.add_cookie(cookie)
-    driver.get("https://www.x.com/")
-
-    driver.implicitly_wait(2)
-    time.sleep(1)
-
+def search_tweets(driver, query, max_tweets, save_dir, seen_ids, starting_n):
     # Allow the page to load
     url = urllib.parse.quote(string=f"https://x.com/search?q={query}&src=typed_query", safe='/&?=:')
     driver.get(url)
-    driver.maximize_window()
-    time.sleep(3)
+    time.sleep(10)
 
-    print('Scraping started')
     print(f'Page url: {url}')
     print(f'Keyword: {query}\n')
 
@@ -90,6 +88,9 @@ def search_tweets(query, max_tweets, save_dir, seen_ids, starting_n):
     scrolling = True
     last_position = 0  # Current scroll amount
     height = 0         # Height to scroll to
+    
+    skipped = 0
+    already_seen = 0
 
     while scrolling:
         tweet_containers = driver.find_elements(By.XPATH, '//article[@data-testid="tweet"]')
@@ -103,7 +104,13 @@ def search_tweets(query, max_tweets, save_dir, seen_ids, starting_n):
                     tweet_ids.add(tweet_id)
                     tweet_datas.append(tweet_data)
                     tweet_counter += 1
-                    print(f'\rGot {tweet_counter} tweet(s) out of {max_tweets}', end="")
+                    print(f'\rGot {tweet_counter} tweet(s) out of {max_tweets}; Skipped: {skipped}; Already seen: {already_seen}', end="")
+                else:
+                    already_seen += 1
+
+            else:
+                skipped += 1
+
             if tweet_counter >= max_tweets:
                 break
 
@@ -113,18 +120,18 @@ def search_tweets(query, max_tweets, save_dir, seen_ids, starting_n):
 
         # Scroll and update last position, scrolling flag and height to scroll to
         height += SCROLL_AMOUNT
-        last_position, scrolling = scroll(driver=driver,height=height,max_attempts=3, last_pos=last_position)
+        last_position, scrolling = scroll(driver=driver,height=height,max_attempts=4, last_pos=last_position)
         if not scrolling:
             print(f'\nCollected {tweet_counter} tweets')
-
+    
+    time.sleep(5)
     
     for data in tweet_datas:
         with open(save_dir+'/tweet_'+str(starting_n)+'.json', mode='w', encoding='utf-8') as outjson:
             json.dump(data, outjson, indent=2)
         starting_n += 1
 
-    driver.close()
-    return tweet_counter
+    return tweet_counter, tweet_ids
 
 def get_ids_set(d):
     tweet_ids = set()
@@ -141,19 +148,55 @@ def get_ids_set(d):
 
     return starting_n, tweet_ids
 
+def get_keywords(d):
+    keywords = []
+    with open(d+'/keywords.txt', mode='r', encoding='utf-8') as f:
+        keywords = f.readlines()
+
+    return keywords
+
+def setup():
+    # Start chrom webdriver
+    options = Options()
+    options.add_argument('--headless')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    driver = webdriver.Chrome(options=options)
+    driver.get("https://www.x.com/")
+
+    # Get logins cookies
+    cookies = pickle.load(open("../auth_x.pkl", "rb"))
+    for cookie in cookies:
+        driver.add_cookie(cookie)
+    driver.get("https://www.x.com/")
+
+    driver.implicitly_wait(2)
+    time.sleep(1)
+    driver.maximize_window()
+
+    print('Scraping started')
+    return driver
+
 def main():
     load_dotenv()
     TWEETS_DIR = '../tweets'
+    KEYWORDS_DIR = '..'
+    driver = setup()
     starting_n, seen_ids = get_ids_set(TWEETS_DIR)
+    keywords = get_keywords(KEYWORDS_DIR)
 
-    keywords = ['Citizen Energy Communities','Renewable Energy Cooperatives','Energy Cooperatives','Energy communities','Community energy projects','Local energy initiatives','Renewable energy cooperatives','Community-owned energy','Distributed energy resources','Energy sharing schemes']
     curr_n = starting_n
     for keyword in keywords:
-        n_tweets = search_tweets(keyword, 20, TWEETS_DIR, seen_ids, curr_n)
+        retry = True
+        n_tweets, new_tweet_ids = search_tweets(driver, keyword.lower(), 300, TWEETS_DIR, seen_ids, curr_n)
+        if n_tweets == 0 and retry:
+            time.sleep(120)
+            retry = False
+            n_tweets, new_tweet_ids = search_tweets(driver, keyword.lower(), 300, TWEETS_DIR, seen_ids, curr_n)
+
         curr_n += n_tweets
+        seen_ids.update(new_tweet_ids)
+
+    driver.close()
 
 main()
-
-    
-
-
