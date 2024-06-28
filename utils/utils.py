@@ -31,29 +31,25 @@ def get_scores(d, keywords):
         scores[i] = (score / n_keywords, i)
 
     scores.sort(reverse=True)
-    print(scores[7000])
-    print(docs[2461])
+    
+    #print(scores[7000])
+    #print(docs[2461])
 
-    least_scores = scores[-20:]
-    least_docs = [docs[i] for score,i in least_scores]
-    #print(least_scores)
-    print()
-    #print(least_docs)
+    return scores
 
+
+
+def plot_scores(scores):
     for i,(score,k) in enumerate(scores):
         scores[i] = score
     
     x = np.array(scores)
-    y = []
-    for i in range(len(scores)):
-        y.append(i)
+    y = np.array([i for i in range(len(scores))])
 
-    y = np.array(y)
+    plt.figure(figsize=(20, 14))
+    plt.scatter(x,y, s=0.25)
 
-    plt.scatter(x,y)
-
-    #plt.show()
-
+    plt.show()
 
 def get_keywords(d):
     keywords = []
@@ -67,6 +63,7 @@ def main():
 
 if __name__ == '__main__':
     keywords = get_keywords('..')
-    get_scores('../tweets', keywords)
+    scores = get_scores('../tweets', keywords)
+    plot_scores(scores)
     
 
