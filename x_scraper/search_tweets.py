@@ -1,3 +1,8 @@
+import sys
+
+import utils.utils
+sys.path.append('/home/daniele/Documents/Thesis/utils')
+
 import urllib.parse
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -8,6 +13,7 @@ from dotenv import load_dotenv
 import os
 import json
 from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException
+import utils
 
 SCROLL_AMOUNT=800
 
@@ -148,12 +154,6 @@ def get_ids_set(d):
 
     return starting_n, tweet_ids
 
-def get_keywords(d):
-    keywords = []
-    with open(d+'/keywords.txt', mode='r', encoding='utf-8') as f:
-        keywords = f.readlines()
-
-    return keywords
 
 def setup():
     # Start chrom webdriver
@@ -183,7 +183,9 @@ def main():
     KEYWORDS_DIR = '..'
     driver = setup()
     starting_n, seen_ids = get_ids_set(TWEETS_DIR)
-    keywords = get_keywords(KEYWORDS_DIR)
+    print('Already collected: '+str(starting_n)+' files')
+
+    keywords = utils.get_keywords(KEYWORDS_DIR)
 
     curr_n = starting_n
     for keyword in keywords:
@@ -199,4 +201,5 @@ def main():
 
     driver.close()
 
-main()
+if __name__ == '__main__':
+    main()

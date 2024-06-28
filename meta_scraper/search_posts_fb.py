@@ -1,3 +1,6 @@
+import sys
+sys.path.append('/home/daniele/Documents/Thesis/utils')
+
 import urllib.parse
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -8,9 +11,9 @@ import pickle
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 import json
-from string import punctuation
 from os import listdir
 from os.path import isfile
+import utils
 
 def parse_date_str(date):
     date_l = date.split(" ")
@@ -41,28 +44,25 @@ def get_post_data(driver, url, query):
     try:
         username = driver.find_element(By.XPATH, '//h3//a').text
     except NoSuchElementException:
-        print('Could not find username, skipping post; Url: ' + url)
         return None
     
     try:
         post_date_str = driver.find_element(By.XPATH, '//footer//abbr').text
     except NoSuchElementException:
-        print('Could not find date; Url: ' + url)
-        post_date_str = ""
+        return None
 
-    if post_date_str:
-        post_date_str = parse_date_str(post_date_str)
+    post_date_str = parse_date_str(post_date_str)
 
     # Get all the text of the post
     try:
         text_ps = driver.find_elements(By.XPATH, '//p')
     except NoSuchElementException:
-        print('Could not find text; Url: ' + url)
+        return None
 
     text = ""
     if text_ps:
         for p in text_ps:
-            text += p
+            text += p.text
         
     
     post = {
@@ -87,28 +87,33 @@ def get_full_post_url(container):
 def get_full_urls(driver, max_posts, post_ids):
     full_post_urls = []
     url_counter = 0
+    already_seen = 0
+
     while True:
         post_containers = driver.find_elements(By.XPATH, '//article')
         for container in post_containers:
             if url_counter >= max_posts:
                 print(f'\nCollected {url_counter} urls')
-                return full_post_urls
+                return full_post_urls, already_seen
             
             full_post_url = get_full_post_url(container)
             if full_post_url and (full_post_url.split('&eav')[0] not in post_ids):
                 full_post_urls.append(full_post_url)
                 url_counter += 1
+            else:
+                already_seen += 1
+    
         try:
             next_results_url = driver.find_element(By.XPATH, '//div[@id="see_more_pager"]/a').get_attribute('href')
         except NoSuchElementException:
             print(f'\nCollected {url_counter} urls')
-            return full_post_urls
+            return full_post_urls, already_seen
         
         sleep(3)
         driver.get(next_results_url)
 
 
-def search_posts(driver, url, query, max_posts, post_ids, nfiles):
+def search_posts(driver, save_dir, url, query, max_posts, post_ids, starting_n):
 
     # Allow the page to load
     driver.get(url)
@@ -119,25 +124,31 @@ def search_posts(driver, url, query, max_posts, post_ids, nfiles):
 
     post_counter = 0
     post_datas = []   # List of dicts, each dict will be data of a post
-    session_urls = []
-    full_post_urls = get_full_urls(driver, max_posts, post_ids)
+    full_post_urls, already_seen = get_full_urls(driver, max_posts, post_ids)
+    session_ids = []
+
+    skipped = 0
     
     for url in full_post_urls:
         driver.get(url)
-        sleep(10)
+        sleep(20)
         post_data = get_post_data(driver, url, query)
             
         if post_data:
-            #if
+            session_ids.append(post_data['id'])
             post_datas.append(post_data)
             post_counter += 1
-            print(f'\rGot {post_counter} post(s) out of {max_posts}', end="")
+            print(f'\rGot {post_counter} post(s) out of {max_posts}; Skipped: {skipped}; Already seen: {already_seen}', end="")
+        else:
+            skipped += 1
 
     print()
     for data in post_datas:
-        with open('facebook_posts/post_'+str(nfiles)+'.json', mode='w', encoding='utf-8') as outjson:
+        with open(save_dir+'/post_'+str(starting_n)+'.json', mode='w', encoding='utf-8') as outjson:
             json.dump(data, outjson, indent=2)
-        nfiles += 1
+        starting_n += 1
+    
+    return post_counter, session_ids
 
 
 def get_urls_set(d):
@@ -149,9 +160,10 @@ def get_urls_set(d):
         if isfile(full_path):
             with open(full_path, 'r', encoding='utf-8') as post_json:
                 post_data = json.load(post_json)
-                id = post_data["id"].split('&eav')[0]
+                id = post_data['id']
                 post_ids.add(id)
             nfiles += 1
+
     return nfiles, post_ids
 
 def setup():
@@ -164,7 +176,7 @@ def setup():
     driver.get("https://www.facebook.com/")
 
     # Get logins cookies
-    cookies = pickle.load(open("auth_facebook.pkl", "rb"))
+    cookies = pickle.load(open("../auth_facebook.pkl", "rb"))
     for cookie in cookies:
         driver.add_cookie(cookie)
     driver.get("https://www.facebook.com/")
@@ -179,23 +191,31 @@ def setup():
 
 def main(): 
     load_dotenv()
-    POSTS_DIR = './facebook_posts'
+    POSTS_DIR = '../facebook_posts'
+    KEYWORDS_DIR = '..'
     driver = setup()
 
-    nfiles, post_ids = get_urls_set(POSTS_DIR)
-    print('Already collected: '+str(nfiles)+' files')
+    starting_n, post_ids = get_urls_set(POSTS_DIR)
+    print('Already collected: '+str(starting_n)+' files')
 
-    keywords = ['Citizen Energy Communities','Renewable Energy Cooperatives','Energy Cooperatives','Energy communities','Community energy projects','Local energy initiatives','Renewable energy cooperatives','Community-owned energy','Distributed energy resources','Energy sharing schemes']
+    keywords = utils.get_keywords(KEYWORDS_DIR)
+    
     for keyword in keywords:
+        keyword = keyword.lower()
         url = urllib.parse.quote(string=f"https://mbasic.facebook.com/search/top/?q={keyword}", safe='/&?=:')
-        search_posts(driver, url, keyword, 300, post_ids, nfiles)
+        n_posts, new_ids = search_posts(driver, POSTS_DIR, url, keyword, 100, post_ids, starting_n)
+        starting_n += n_posts
+        post_ids.update(new_ids)
 
         url = urllib.parse.quote(string=f"https://mbasic.facebook.com/search/posts/?q={keyword}", safe='/&?=:')
-        search_posts(driver, url, keyword, 300, post_ids, nfiles)
+        n_posts, new_ids = search_posts(driver, POSTS_DIR, url, keyword, 250, post_ids, starting_n)
+        starting_n += n_posts
+        post_ids.update(new_ids)
     
     driver.close()
 
-main()
+if __name__ == '__main__':
+    main()
 
     
 
