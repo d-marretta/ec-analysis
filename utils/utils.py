@@ -3,6 +3,7 @@ from rank_bm25 import BM25Okapi
 import os
 import matplotlib.pyplot as plt
 import numpy as np
+import string
 
 def get_scores(d, keywords):
     docs = []
@@ -12,7 +13,17 @@ def get_scores(d, keywords):
         if os.path.isfile(fullpath):
             with open(fullpath, mode='r', encoding='utf-8') as fjson:
                 tweet_data = json.load(fjson)
-                docs.append(tweet_data['text'].replace('#', ' ').lower())
+
+                exclude = set(string.punctuation)
+                clean_text = ''
+                
+                for ch in tweet_data['text']:
+                    if ch in exclude:
+                        clean_text += ' '
+                    else:
+                        clean_text += ch
+
+                docs.append(clean_text.lower())
     
     tokenized_docs = [doc.split() for doc in docs]
 
@@ -21,7 +32,7 @@ def get_scores(d, keywords):
     scores = [0 for i in range(len(docs))]
 
     for keyword in keywords:
-        keyword = keyword.lower()
+        keyword = keyword.lower().strip()
         doc_scores = bm25.get_scores(keyword.split())
         for i in range(len(scores)):
             scores[i] += doc_scores[i]
@@ -47,7 +58,7 @@ def plot_scores(scores):
     y = np.array([i for i in range(len(scores))])
 
     plt.figure(figsize=(20, 14))
-    plt.scatter(x,y, s=0.25)
+    plt.scatter(x,y, s=0.5)
 
     plt.show()
 
