@@ -64,6 +64,7 @@ def draw_graph(tweets_dir, graph_dir):
     graph = networkx.DiGraph()
 
     for tweet in tweets:
+        # TODO: add date time attribute
         tag = tweet['tag']
         mentions = tweet['mentions']
         hashtags = tweet['hashtags']
