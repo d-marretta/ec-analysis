@@ -14,6 +14,34 @@ import json
 from os import listdir
 from os.path import isfile
 import utils
+import base64
+import pytesseract
+from PIL import Image
+import cv2
+import numpy as np
+from string import punctuation
+
+SCROLL_AMOUNT = 700
+
+def scroll(driver, height, max_attempts, last_pos):
+    # Try scrolling multiple times, in case the page has to load
+    attempt = 0
+    curr_pos = 0
+    while attempt < max_attempts:
+        driver.execute_script(f'window.scrollTo(0, {height})')
+        sleep(0.5)
+        curr_pos = driver.execute_script("return window.scrollY")
+        if last_pos == curr_pos:
+            # No scrolling happened, try again
+            sleep(1)
+            attempt += 1
+        else:
+            # Return new last_position, new height to scroll to and 
+            # whether scrolling is still true or false
+            return curr_pos,True
+    
+    return curr_pos,False
+
 
 def parse_date_str(date):
     date_l = date.split(" ")
@@ -40,77 +68,118 @@ def parse_date_str(date):
     date_str = day_num+'-'+month_num+'-'+year
     return date_str
 
-def get_post_data(driver, url, query):
+def get_date_str(driver, canvas):
+    canvas_base64 = driver.execute_script("return arguments[0].toDataURL('image/png').substring(22);",canvas)
+
+    canvas_png = base64.b64decode(canvas_base64)
+
+    with open('date.png', 'wb') as f:
+        f.write(canvas_png)
+    
+    img = cv2.imread('date.png')
+
+    white = np.full(img.shape, 255, dtype=np.uint8)
+
+    # Create a mask to identify black pixels
+    black_mask = cv2.inRange(img, lowerb=np.array([0, 0, 0]), upperb=np.array([0, 0, 0]))
+
+    # Change black pixels to white using bitwise operations
+    img = cv2.bitwise_or(white, white, mask=black_mask)
+
+    # Resize and add border
+    img = cv2.copyMakeBorder(img, 50, 50, 50, 50, cv2.BORDER_CONSTANT, value=[255, 255, 255])
+    result = cv2.resize(img,None,fx=4, fy=4, interpolation = cv2.INTER_CUBIC)
+
+    cv2.imwrite('date.png', result)
+    
+    return pytesseract.image_to_string(Image.open('date.png'))
+
+
+
+def get_hashtags(text):
+    exclude = set(punctuation.replace('#','').replace('@',''))
+    clean_text = ''
+    for ch in text:
+        if ch in exclude:
+            clean_text += ' '
+        else:
+            clean_text += ch
+
+    hashtags = set()
+    mentions = set()
+    words = clean_text.split()
+    for word in words:
+        if word.startswith('@'):
+            cont_mentions = word.strip()[1:].split('@')
+            for ment in cont_mentions:
+                if ment:
+                    mentions.add(f'@{ment}')
+
+        elif word.startswith('#'):
+            cont_hashtags = word.strip()[1:].split('#')
+            for hash in cont_hashtags:
+                if hash:
+                    hashtags.add(f'#{hash.lower()}')
+    
+    return hashtags, mentions
+
+
+def get_post_data(driver, container, query):
     try:
-        username = driver.find_element(By.XPATH, '//h3//a').text
+        username = container.find_element(By.XPATH, '//h3//strong').text
     except NoSuchElementException:
         return None
     
     try:
-        post_date_str = driver.find_element(By.XPATH, '//footer//abbr').text
+        post_date_str = get_date_str(driver, container.find_element(By.XPATH, '//canvas'))
     except NoSuchElementException:
         return None
 
     post_date_str = parse_date_str(post_date_str)
 
-    # Get all the text of the post
+    # Get all the text and tags of the post
+    mentions = set()
     try:
-        text_ps = driver.find_elements(By.XPATH, '//p')
+        text_div = container.find_element(By.XPATH, '//div[@data-ad-preview="message" or @data-ad-comet-preview="message"]')
+
+        try:
+            altro_button = text_div.find_element(By.XPATH, '//div[@role="button" and contains(text(), "Altro")]')
+            altro_button.click()
+        except NoSuchElementException:
+            altro_button = None
+
+        text_div = container.find_element(By.XPATH, '//div[@data-ad-preview="message" or @data-ad-comet-preview="message"]')
+        
+        try:
+            tags_spans = text_div.find_elements(By.XPATH, '//a[@role="link"]/span')
+            for tag in tags_spans:
+                mentions.add(tag.text)
+
+        except NoSuchElementException:
+            mentions = set()
+
+        text = text_div.text
+
     except NoSuchElementException:
         return None
-
-    text = ""
-    if text_ps:
-        for p in text_ps:
-            text += p.text
         
-    
+    hashtags, at_mentions = get_hashtags(text)
+    if at_mentions:
+        mentions.update(at_mentions)
+
     post = {
-        'id':url.split('&eav')[0],
-        'url':url,
+        'id':username+text+post_date_str,
         'keyword':query,
         'username':username,
         'date':post_date_str,
-        'text':text
+        'text':text,
+        'mentions':mentions,
+        'hashtags':hashtags
     }
 
     # print(post)
     return post
 
-def get_full_post_url(container):
-    try:
-        url = container.find_element(By.XPATH, './/a[contains(text(), "Notizia completa")]').get_attribute('href')
-    except NoSuchElementException:
-        url = ""
-    return url
-
-def get_full_urls(driver, max_posts, post_ids):
-    full_post_urls = []
-    url_counter = 0
-    already_seen = 0
-
-    while True:
-        post_containers = driver.find_elements(By.XPATH, '//article')
-        for container in post_containers:
-            if url_counter >= max_posts:
-                print(f'\nCollected {url_counter} urls')
-                return full_post_urls, already_seen
-            
-            full_post_url = get_full_post_url(container)
-            if full_post_url and (full_post_url.split('&eav')[0] not in post_ids):
-                full_post_urls.append(full_post_url)
-                url_counter += 1
-            else:
-                already_seen += 1
-    
-        try:
-            next_results_url = driver.find_element(By.XPATH, '//div[@id="see_more_pager"]/a').get_attribute('href')
-        except NoSuchElementException:
-            print(f'\nCollected {url_counter} urls')
-            return full_post_urls, already_seen
-        
-        sleep(3)
-        driver.get(next_results_url)
 
 
 def search_posts(driver, save_dir, url, query, max_posts, post_ids, starting_n):
@@ -124,25 +193,49 @@ def search_posts(driver, save_dir, url, query, max_posts, post_ids, starting_n):
 
     post_counter = 0
     post_datas = []   # List of dicts, each dict will be data of a post
-    full_post_urls, already_seen = get_full_urls(driver, max_posts, post_ids)
-    session_ids = []
+    session_ids = set()
 
+    height = 0
+    last_position = 0
+    scrolling = True
+
+    already_seen = 0
     skipped = 0
-    
-    for url in full_post_urls:
-        driver.get(url)
-        sleep(20)
-        post_data = get_post_data(driver, url, query)
-            
-        if post_data:
-            session_ids.append(post_data['id'])
-            post_datas.append(post_data)
-            post_counter += 1
-            print(f'\rGot {post_counter} post(s) out of {max_posts}; Skipped: {skipped}; Already seen: {already_seen}', end="")
-        else:
-            skipped += 1
+
+    while scrolling:
+        containers = driver.find_elements(By.XPATH, '//div[@style="border-radius: max(0px, min(var(--card-corner-radius), calc((100vw - 4px - 100%) * 9999))) / var(--card-corner-radius);"]')
+        for container in containers:
+            post_data = get_post_data(driver, container, query)
+                
+            if post_data:
+                id = post_data['id']
+                if (id not in session_ids) and (id not in post_ids):
+                    session_ids.add(post_data['id'])
+                    post_datas.append(post_data)
+                    post_counter += 1
+                    print(f'\rGot {post_counter} post(s) out of {max_posts}; Skipped: {skipped}; Already seen: {already_seen}', end="")
+                else:
+                    already_seen += 1
+            else:
+                skipped += 1
+        
+            if post_counter >= max_posts:
+                break
+
+        if post_counter >= max_posts:
+            print(f'\nCollected {post_counter} tweets')
+            break
+
+         # Scroll and update last position, scrolling flag and height to scroll to
+        height += SCROLL_AMOUNT
+        last_position, scrolling = scroll(driver=driver,height=height,max_attempts=4, last_pos=last_position)
+        if not scrolling:
+            print(f'\nCollected {post_counter} tweets')
 
     print()
+
+    sleep(5)
+
     for data in post_datas:
         with open(save_dir+'/post_'+str(starting_n)+'.json', mode='w', encoding='utf-8') as outjson:
             json.dump(data, outjson, indent=2)
@@ -202,21 +295,18 @@ def main():
     
     for keyword in keywords:
         keyword = keyword.lower()
-        url = urllib.parse.quote(string=f"https://mbasic.facebook.com/search/top/?q={keyword}", safe='/&?=:')
-        n_posts, new_ids = search_posts(driver, POSTS_DIR, url, keyword, 100, post_ids, starting_n)
+        keyword = 'energy communities'
+        url = urllib.parse.quote(string=f"https://www.facebook.com/search/posts/?q={keyword}", safe='/&?=:')
+        n_posts, new_ids = search_posts(driver, POSTS_DIR, url, keyword, 3, post_ids, starting_n)
         starting_n += n_posts
         post_ids.update(new_ids)
 
-        url = urllib.parse.quote(string=f"https://mbasic.facebook.com/search/posts/?q={keyword}", safe='/&?=:')
-        n_posts, new_ids = search_posts(driver, POSTS_DIR, url, keyword, 250, post_ids, starting_n)
-        starting_n += n_posts
-        post_ids.update(new_ids)
+        # url = urllib.parse.quote(string=f"https://mbasic.facebook.com/search/posts/?q={keyword}", safe='/&?=:')
+        # n_posts, new_ids = search_posts(driver, POSTS_DIR, url, keyword, 250, post_ids, starting_n)
+        # starting_n += n_posts
+        # post_ids.update(new_ids)
     
     driver.close()
 
 if __name__ == '__main__':
     main()
-
-    
-
-

@@ -2,7 +2,6 @@ import json
 from string import punctuation
 import os
 import networkx
-import matplotlib.pyplot as plt
 from ipysigma import Sigma
 
 def get_new_tweet_data(f):
