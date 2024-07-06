@@ -168,7 +168,7 @@ def get_post_data(driver, container, query):
         mentions.update(at_mentions)
 
     post = {
-        'id':username+text+post_date_str,
+        'id':username+post_date_str,
         'keyword':query,
         'username':username,
         'date':post_date_str,
