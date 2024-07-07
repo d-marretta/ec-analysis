@@ -10,12 +10,11 @@ import time
 from selenium.webdriver.common.by import By
 import pickle
 from dotenv import load_dotenv
-import os
 import json
 from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException
-import utils
+from utils import utils
 
-SCROLL_AMOUNT=800
+SCROLL_AMOUNT=700
 
 def get_tweet_data(container, query):
     try:
@@ -60,24 +59,6 @@ def get_tweet_data(container, query):
     # print(tweet)
     return tweet
 
-def scroll(driver, height, max_attempts, last_pos):
-    # Try scrolling multiple times, in case the page has to load
-    attempt = 0
-    curr_pos = 0
-    while attempt < max_attempts:
-        driver.execute_script(f'window.scrollTo(0, {height})')
-        time.sleep(0.5)
-        curr_pos = driver.execute_script("return window.scrollY")
-        if last_pos == curr_pos:
-            # No scrolling happened, try again
-            time.sleep(1)
-            attempt += 1
-        else:
-            # Return new last_position, new height to scroll to and 
-            # whether scrolling is still true or false
-            return curr_pos,True
-    
-    return curr_pos,False
 
 def search_tweets(driver, query, max_tweets, save_dir, seen_ids, starting_n):
     # Allow the page to load
@@ -126,7 +107,7 @@ def search_tweets(driver, query, max_tweets, save_dir, seen_ids, starting_n):
 
         # Scroll and update last position, scrolling flag and height to scroll to
         height += SCROLL_AMOUNT
-        last_position, scrolling = scroll(driver=driver,height=height,max_attempts=4, last_pos=last_position)
+        last_position, scrolling = utils.scroll(driver=driver,height=height,max_attempts=4, last_pos=last_position)
         if not scrolling:
             print(f'\nCollected {tweet_counter} tweets')
     
@@ -138,21 +119,6 @@ def search_tweets(driver, query, max_tweets, save_dir, seen_ids, starting_n):
         starting_n += 1
 
     return tweet_counter, tweet_ids
-
-def get_ids_set(d):
-    tweet_ids = set()
-    starting_n = 0
-
-    for file in os.listdir(d):
-        full_path = d+'/'+file
-        if os.path.isfile(full_path):
-            with open(full_path, 'r', encoding='utf-8') as tweet_json:
-                post_data = json.load(tweet_json)
-                id = post_data["id"]
-                tweet_ids.add(id)
-            starting_n += 1
-
-    return starting_n, tweet_ids
 
 
 def setup():
@@ -182,7 +148,7 @@ def main():
     TWEETS_DIR = '../tweets'
     KEYWORDS_DIR = '..'
     driver = setup()
-    starting_n, seen_ids = get_ids_set(TWEETS_DIR)
+    starting_n, seen_ids = utils.get_ids_set(TWEETS_DIR)
     print('Already collected: '+str(starting_n)+' files')
 
     keywords = utils.get_keywords(KEYWORDS_DIR)

@@ -4,15 +4,12 @@ sys.path.append('/home/daniele/Documents/Thesis/utils')
 import urllib.parse
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException,StaleElementReferenceException
 from time import sleep
 from selenium.webdriver.common.by import By
 import pickle
 from dotenv import load_dotenv
-from datetime import datetime, timedelta
 import json
-from os import listdir
-from os.path import isfile
 import utils
 import base64
 import pytesseract
@@ -20,53 +17,24 @@ from PIL import Image
 import cv2
 import numpy as np
 from string import punctuation
+import dateparser
+from datetime import datetime
 
-SCROLL_AMOUNT = 700
-
-def scroll(driver, height, max_attempts, last_pos):
-    # Try scrolling multiple times, in case the page has to load
-    attempt = 0
-    curr_pos = 0
-    while attempt < max_attempts:
-        driver.execute_script(f'window.scrollTo(0, {height})')
-        sleep(0.5)
-        curr_pos = driver.execute_script("return window.scrollY")
-        if last_pos == curr_pos:
-            # No scrolling happened, try again
-            sleep(1)
-            attempt += 1
-        else:
-            # Return new last_position, new height to scroll to and 
-            # whether scrolling is still true or false
-            return curr_pos,True
-    
-    return curr_pos,False
+SCROLL_AMOUNT = 800
 
 
 def parse_date_str(date):
-    date_l = date.split(" ")
-    months = ['gennaio','febbraio','marzo','aprile','maggio','giugno','luglio','agosto','settembre','ottobre','novembre','dicembre']
-    if date_l[1].lower() not in months:
-        if date_l[0].lower() == 'ieri':
-            yesterday = datetime.now() - timedelta(1)
-            date_str = datetime.strftime(yesterday, '%d-%m-%y')
-            return date_str
-        else:
-            today = datetime.today().strftime('%d-%m-%y')
-            return today
-    month_num = 0
-    for i, month in enumerate(months):
-        if date_l[1].lower() == month:
-            month_num = '0'+str(i+1) if (i+1) <= 9 else str(i+1)
+    settings = {
+        'RELATIVE_BASE': datetime.today().replace(minute=0, hour=23, second=0, microsecond=0)
+    }
+    parsed_date = ''
+    if 'at' in date:
+        parsed_date = str(dateparser.parse(date.replace(' at', ''), languages=['en'], settings=settings))
+    else:
+        parsed_date = str(dateparser.parse(date, languages=['en'], settings=settings))
     
-    try:
-        year = str(int(date_l[2]))[2:]
-    except ValueError:
-        year = datetime.today().strftime("%y")
+    return parsed_date
 
-    day_num = '0'+date_l[0] if int(date_l[0]) <= 9 else date_l[0]
-    date_str = day_num+'-'+month_num+'-'+year
-    return date_str
 
 def get_date_str(driver, canvas):
     canvas_base64 = driver.execute_script("return arguments[0].toDataURL('image/png').substring(22);",canvas)
@@ -87,8 +55,8 @@ def get_date_str(driver, canvas):
     img = cv2.bitwise_or(white, white, mask=black_mask)
 
     # Resize and add border
-    img = cv2.copyMakeBorder(img, 50, 50, 50, 50, cv2.BORDER_CONSTANT, value=[255, 255, 255])
-    result = cv2.resize(img,None,fx=4, fy=4, interpolation = cv2.INTER_CUBIC)
+    img = cv2.copyMakeBorder(img, 30, 30, 30, 30, cv2.BORDER_CONSTANT, value=[255, 255, 255])
+    result = cv2.resize(img,None,fx=3, fy=3, interpolation = cv2.INTER_CUBIC)
 
     cv2.imwrite('date.png', result)
     
@@ -96,7 +64,7 @@ def get_date_str(driver, canvas):
 
 
 
-def get_hashtags(text):
+def get_hashtags_from_text(text):
     exclude = set(punctuation.replace('#','').replace('@',''))
     clean_text = ''
     for ch in text:
@@ -125,13 +93,60 @@ def get_hashtags(text):
 
 
 def get_post_data(driver, container, query):
+    username= ''
+
+    # Try get normal username
     try:
-        username = container.find_element(By.XPATH, '//h3//strong').text
+        retry_stale = True
+        attempts = 0
+        while retry_stale and attempts <= 5:
+            attempts += 1
+            try:
+                username = container.find_element(By.XPATH, './/h3//strong').text
+                retry_stale = False
+            except StaleElementReferenceException:
+                continue
+
+
     except NoSuchElementException:
+        username = ''
+    
+    # If it doesn't work try username of group
+    if not username:
+        try:
+            retry_stale = True
+            attempts = 0
+            while retry_stale and attempts <= 5:
+                attempts += 1
+                try:
+                    username = container.find_element(By.XPATH, './/h3//a[contains(@href, "groups")]/span').text
+                    retry_stale = False
+                except StaleElementReferenceException:
+                    continue
+
+        except NoSuchElementException:
+            return None
+    
+    if not username:
         return None
     
     try:
-        post_date_str = get_date_str(driver, container.find_element(By.XPATH, '//canvas'))
+        canvas = None
+        retry_stale = True
+        attempts = 0
+        while retry_stale and attempts <= 5:     
+            attempts += 1
+            try:
+                canvas = container.find_element(By.XPATH, './/canvas')
+                retry_stale = False
+            except StaleElementReferenceException:
+                continue
+
+        if canvas:
+            post_date_str = get_date_str(driver, canvas)
+        else:
+            return None
+
     except NoSuchElementException:
         return None
 
@@ -140,18 +155,18 @@ def get_post_data(driver, container, query):
     # Get all the text and tags of the post
     mentions = set()
     try:
-        text_div = container.find_element(By.XPATH, '//div[@data-ad-preview="message" or @data-ad-comet-preview="message"]')
+        text_div = container.find_element(By.XPATH, './/div[@data-ad-preview="message" or @data-ad-comet-preview="message"]')
 
         try:
-            altro_button = text_div.find_element(By.XPATH, '//div[@role="button" and contains(text(), "Altro")]')
+            altro_button = text_div.find_element(By.XPATH, './/div[@role="button" and contains(text(), "See more")]')
             altro_button.click()
         except NoSuchElementException:
             altro_button = None
 
-        text_div = container.find_element(By.XPATH, '//div[@data-ad-preview="message" or @data-ad-comet-preview="message"]')
+        text_div = container.find_element(By.XPATH, './/div[@data-ad-preview="message" or @data-ad-comet-preview="message"]')
         
         try:
-            tags_spans = text_div.find_elements(By.XPATH, '//a[@role="link"]/span')
+            tags_spans = text_div.find_elements(By.XPATH, './/a[@role="link"]/span')
             for tag in tags_spans:
                 mentions.add(tag.text)
 
@@ -163,18 +178,18 @@ def get_post_data(driver, container, query):
     except NoSuchElementException:
         return None
         
-    hashtags, at_mentions = get_hashtags(text)
+    hashtags, at_mentions = get_hashtags_from_text(text)
     if at_mentions:
         mentions.update(at_mentions)
 
     post = {
-        'id':username+post_date_str,
+        'id':username+post_date_str+str(len(text)),
         'keyword':query,
         'username':username,
         'date':post_date_str,
         'text':text,
-        'mentions':mentions,
-        'hashtags':hashtags
+        'mentions':list(mentions),
+        'hashtags':list(hashtags)
     }
 
     # print(post)
@@ -210,7 +225,7 @@ def search_posts(driver, save_dir, url, query, max_posts, post_ids, starting_n):
             if post_data:
                 id = post_data['id']
                 if (id not in session_ids) and (id not in post_ids):
-                    session_ids.add(post_data['id'])
+                    session_ids.add(id)
                     post_datas.append(post_data)
                     post_counter += 1
                     print(f'\rGot {post_counter} post(s) out of {max_posts}; Skipped: {skipped}; Already seen: {already_seen}', end="")
@@ -223,14 +238,14 @@ def search_posts(driver, save_dir, url, query, max_posts, post_ids, starting_n):
                 break
 
         if post_counter >= max_posts:
-            print(f'\nCollected {post_counter} tweets')
+            print(f'\nCollected {post_counter} posts')
             break
 
          # Scroll and update last position, scrolling flag and height to scroll to
         height += SCROLL_AMOUNT
-        last_position, scrolling = scroll(driver=driver,height=height,max_attempts=4, last_pos=last_position)
+        last_position, scrolling = utils.scroll(driver=driver,height=height,max_attempts=4, last_pos=last_position)
         if not scrolling:
-            print(f'\nCollected {post_counter} tweets')
+            print(f'\nCollected {post_counter} posts')
 
     print()
 
@@ -244,25 +259,11 @@ def search_posts(driver, save_dir, url, query, max_posts, post_ids, starting_n):
     return post_counter, session_ids
 
 
-def get_urls_set(d):
-    post_ids = set()
-    nfiles = 0
-
-    for file in listdir(d):
-        full_path = d+'/'+file
-        if isfile(full_path):
-            with open(full_path, 'r', encoding='utf-8') as post_json:
-                post_data = json.load(post_json)
-                id = post_data['id']
-                post_ids.add(id)
-            nfiles += 1
-
-    return nfiles, post_ids
 
 def setup():
     # Start chrom webdriver
     options = Options()
-    #options.add_argument('--headless')
+    options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     driver = webdriver.Chrome(options=options)
@@ -288,23 +289,24 @@ def main():
     KEYWORDS_DIR = '..'
     driver = setup()
 
-    starting_n, post_ids = get_urls_set(POSTS_DIR)
+    starting_n, post_ids = utils.get_ids_set(POSTS_DIR)
     print('Already collected: '+str(starting_n)+' files')
 
     keywords = utils.get_keywords(KEYWORDS_DIR)
     
     for keyword in keywords:
-        keyword = keyword.lower()
+        keyword = keyword.lower().strip()
         keyword = 'energy communities'
-        url = urllib.parse.quote(string=f"https://www.facebook.com/search/posts/?q={keyword}", safe='/&?=:')
-        n_posts, new_ids = search_posts(driver, POSTS_DIR, url, keyword, 3, post_ids, starting_n)
-        starting_n += n_posts
-        post_ids.update(new_ids)
 
-        # url = urllib.parse.quote(string=f"https://mbasic.facebook.com/search/posts/?q={keyword}", safe='/&?=:')
-        # n_posts, new_ids = search_posts(driver, POSTS_DIR, url, keyword, 250, post_ids, starting_n)
+        # url = urllib.parse.quote(string=f"https://www.facebook.com/search/posts/?q={keyword}", safe='/&?=:')
+        # n_posts, new_ids = search_posts(driver, POSTS_DIR, url, keyword, 15, post_ids, starting_n)
         # starting_n += n_posts
         # post_ids.update(new_ids)
+
+        url = urllib.parse.quote(string=f"https://www.facebook.com/search/top?q={keyword}", safe='/&?=:')
+        n_posts, new_ids = search_posts(driver, POSTS_DIR, url, keyword, 1, post_ids, starting_n)
+        starting_n += n_posts
+        post_ids.update(new_ids)
     
     driver.close()
 
