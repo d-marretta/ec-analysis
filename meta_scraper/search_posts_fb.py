@@ -271,10 +271,8 @@ def main():
 
     for keyword in keywords:
         keyword = keyword.lower().strip()
-        if keyword == "renewable energy cooperatives":
-            break
         url = urllib.parse.quote(string=f"https://m.facebook.com/search_results/?q={keyword}", safe='/&?=:')
-        n_posts, new_ids = search_posts(driver, POSTS_DIR, url, keyword, 300, post_ids, starting_n, ac)
+        n_posts, new_ids = search_posts(driver, POSTS_DIR, url, keyword, 250, post_ids, starting_n, ac)
         starting_n += n_posts
         post_ids.update(new_ids)
     
