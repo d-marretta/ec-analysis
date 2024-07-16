@@ -111,7 +111,6 @@ def get_post_data(driver, container, query):
             else:
                 mentions.add(tag_text.strip())
                 
-
     except NoSuchElementException:
         pass
 
