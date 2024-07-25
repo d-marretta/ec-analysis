@@ -1,6 +1,3 @@
-Renewable energy cooperatives
-Community wind farms
-Renewable Energy Communities
 Energy Justice Framework
 Citizen-led Energy Transition
 Collective Energy Consumption Management
@@ -48,5 +45,19 @@ Energy culture
 Local energy projects
 Community engagement
 Citizen Energy Communities
+Renewable Energy Cooperatives
+Energy Cooperatives
+Energy communities
+Community energy projects
+Local energy initiatives
+Community-owned energy
+Distributed energy resources
+Energy sharing schemes
+Community solar power
+Neighborhood energy systems
+Microgrid communities
+Sustainable energy communities
+Energy co-ops
+Community wind farms
 Decentralized energy systems
 Community-based renewable energy

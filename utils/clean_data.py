@@ -6,6 +6,11 @@ import json
 import os
 import utils
 from string import punctuation
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
+import seaborn as sns
+import pandas as pd
+from langdetect import detect
 
 def get_new_post_data(f):
     with open(f, mode='r', encoding='utf-8') as post:
@@ -52,63 +57,154 @@ def add_hash_and_mentions(posts_dir):
             json.dump(new_post_data, fjson, indent=2)
 
 
-def get_scores(d, keywords):
+def get_scores(d, keywords, top_5 = False):
     docs = []
     for file in os.listdir(d):
         fullpath = d+'/'+file
-        
+        id = file.split('_')[1].split('.')[0]
         if os.path.isfile(fullpath):
             with open(fullpath, mode='r', encoding='utf-8') as fjson:
-                tweet_data = json.load(fjson)
+                post_data = json.load(fjson)
 
                 exclude = set(string.punctuation)
                 clean_text = ''
                 
-                for ch in tweet_data['text']:
+                for ch in post_data['text']:
                     if ch in exclude:
                         clean_text += ' '
                     else:
                         clean_text += ch
 
-                docs.append(clean_text.lower())
+                docs.append((id,clean_text.lower()))
     
-    tokenized_docs = [doc.split() for doc in docs]
+    tokenized_docs = [doc.split() for id,doc in docs]
 
     bm25 = BM25Okapi(tokenized_docs)
 
-    scores = [0 for i in range(len(docs))]
-
+    keyword_scores = {}
     for keyword in keywords:
         keyword = keyword.lower().strip()
         doc_scores = bm25.get_scores(keyword.split())
-        for i in range(len(scores)):
-            scores[i] += doc_scores[i]
+        keyword_scores[keyword] = doc_scores
     
-    for i, score in enumerate(scores):
-        n_keywords = len(keywords)
-        scores[i] = (score / n_keywords, i)
-
-    scores.sort(reverse=True)
+    docs_keywords_score = {}
+    for i in range(len(tokenized_docs)):
+        doc_scores = []
+        for keyword, scores in keyword_scores.items():
+            doc_scores.append((scores[i], keyword))
+        if top_5:
+            top_doc_scores = sorted(doc_scores, reverse=True)[:5]
+            docs_keywords_score[docs[i][0]] = top_doc_scores
+        else:
+            docs_keywords_score[docs[i][0]] = doc_scores
     
-    #print(scores[7000])
-    #print(docs[2461])
+    return docs_keywords_score
 
-    return scores
+def cluster(keywords, docs_keywords_score, k, zero_fill=False):
+    all_scores = []
+    for i,scores in docs_keywords_score.items():
+        doc_scores = []
+        for keyword in keywords:
+            keyword_found = False
+            for score in scores:
+                if keyword.lower().strip() == score[1].lower().strip():
+                    doc_scores.append(score[0])
+                    keyword_found = True
+            if not keyword_found and zero_fill:
+               doc_scores.append(np.float64(0.0))
+
+        all_scores.append(doc_scores)
+
+    kmeans = KMeans(n_clusters = k)
+    clusters = kmeans.fit_predict(all_scores)
+
+    return clusters, all_scores
 
 
-def plot_scores(scores):
-    for i,(score,k) in enumerate(scores):
-        scores[i] = score
-    
-    x = np.array(scores)
-    y = np.array([i for i in range(len(scores))])
+def plot_cluster(save_name, clusters, all_scores):
+    pca = PCA(n_components=2)
+    all_scores_reduced = pca.fit_transform(all_scores)
 
     plt.figure(figsize=(20, 14))
-    plt.scatter(x,y, s=0.5)
+    sns.scatterplot(x=all_scores_reduced[:,0], y = all_scores_reduced[:,1], hue=clusters, palette='viridis')
 
-    plt.show()
+    plt.savefig(save_name)
+
+    # pca = PCA(n_components=3)
+    # all_scores_reduced = pca.fit_transform(all_scores)
+
+    # fig = plt.figure(figsize=(20, 14))
+    # ax = fig.add_subplot(111, projection='3d')
+    
+    # scatter = ax.scatter(all_scores_reduced[:,0], all_scores_reduced[:,1], all_scores_reduced[:,2], c=clusters, cmap='viridis')
+        
+    # ax.set_xlabel('PCA Component 1')
+    # ax.set_ylabel('PCA Component 2')
+    # ax.set_zlabel('PCA Component 3')
+
+    # plt.show()
+
+
+def plot_scores(save_name, docs_keywords_score):
+    
+    total_relevance = {doc: sum(score for score, _ in scores) for doc, scores in docs_keywords_score.items()}
+    df = pd.DataFrame(list(total_relevance.items()), columns=['Document', 'Total Relevance'])
+    df = df.sort_values(by='Total Relevance', ascending=False)
+
+    threshold = df['Total Relevance'].mean()
+
+    plt.figure(figsize=(20, 15))
+    plt.bar(df['Document'], df['Total Relevance'], color='skyblue')
+    plt.axhline(y=threshold, color='r', linestyle='--', label=f'Mean = {threshold:.2f}')
+    plt.xlabel('Documents')
+    plt.ylabel('Total Relevance Score')
+    plt.title('Document Relevance Based on Keyword Scores')
+    plt.xticks(rotation=90)
+    plt.legend()
+    plt.savefig(save_name)
+
+
+def perc_not_english(d):
+    not_english = set()
+    n_files = 0
+    no_text = set()
+    for file in os.listdir(d):
+        n_files += 1
+        fullpath = d+'/'+file
+        id = file.split('_')[1].split('.')[0]
+        if os.path.isfile(fullpath):
+            with open(fullpath, mode='r', encoding='utf-8') as fjson:
+                post_data = json.load(fjson)
+
+                text = post_data['text']
+                if not text:
+                    no_text.add(id)
+                    continue
+                try:
+                    lang = detect(text)
+                except:
+                    print(text)
+
+                if lang != 'en':
+                    # print(text)
+                    # print(lang)
+                    # print('-------------------------------------------------------')
+                    not_english.add(id)
+    
+    print(len(not_english))
+    print(len(no_text))
+    print(len(no_text) / n_files * 100)
+    perc = (len(not_english) / n_files) * 100
+    
+    return perc
 
 if __name__ == '__main__':
     keywords = utils.get_keywords('..')
-    scores = get_scores('../facebook_data/facebook_posts', keywords)
-    plot_scores(scores)
+    #docs_keywords_score = get_scores('../facebook_data/facebook_posts', keywords, top_5=False)
+    #clusters,all_scores = cluster(keywords, docs_keywords_score, 6, zero_fill=True)
+    #plot_cluster('../facebook_data/kmeans_allscores_63dims.png', clusters, all_scores)
+
+    #plot_scores('../facebook_data/documents_keyword_scores.png', docs_keywords_score=docs_keywords_score)
+
+    print(perc_not_english('../facebook_data/facebook_posts'))
+
