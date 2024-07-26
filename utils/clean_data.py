@@ -130,24 +130,39 @@ def plot_cluster(save_name, clusters, all_scores):
 
     plt.savefig(save_name)
 
-    # pca = PCA(n_components=3)
-    # all_scores_reduced = pca.fit_transform(all_scores)
 
-    # fig = plt.figure(figsize=(20, 14))
-    # ax = fig.add_subplot(111, projection='3d')
-    
-    # scatter = ax.scatter(all_scores_reduced[:,0], all_scores_reduced[:,1], all_scores_reduced[:,2], c=clusters, cmap='viridis')
+def plot_keywords_scores(save_name, docs_keywords_score, keywords):
+    total_relevance = dict()
+
+    for i, keyword in enumerate(keywords):
+        keyword = keyword.lower().strip()
+        curr_sum = 0
+        for doc, scores in docs_keywords_score.items():
+            for score in scores:
+                if score[1].lower().strip() == keyword:
+                    curr_sum += score[0]
         
-    # ax.set_xlabel('PCA Component 1')
-    # ax.set_ylabel('PCA Component 2')
-    # ax.set_zlabel('PCA Component 3')
+        total_relevance[keyword] = curr_sum
+    
+    df = pd.DataFrame(list(total_relevance.items()), columns=['Keyword', 'Total Relevance'])
+    df = df.sort_values(by='Total Relevance', ascending=False)
 
-    # plt.show()
+    threshold = df['Total Relevance'].mean()
 
+    plt.figure(figsize=(20, 15))
+    plt.bar(df['Keyword'], df['Total Relevance'], color='skyblue')
+    plt.axhline(y=threshold, color='r', linestyle='--', label=f'Mean = {threshold:.2f}')
+    plt.xlabel('Keywords')
+    plt.ylabel('Total Relevance Score')
+    plt.title('Document Relevance Based on Keyword Scores')
+    plt.xticks(rotation=90)
+    plt.legend()
+    plt.savefig(save_name)
 
-def plot_scores(save_name, docs_keywords_score):
+def plot_documents_scores(save_name, docs_keywords_score):
     
     total_relevance = {doc: sum(score for score, _ in scores) for doc, scores in docs_keywords_score.items()}
+    
     df = pd.DataFrame(list(total_relevance.items()), columns=['Document', 'Total Relevance'])
     df = df.sort_values(by='Total Relevance', ascending=False)
 
@@ -186,25 +201,18 @@ def perc_not_english(d):
                     print(text)
 
                 if lang != 'en':
-                    # print(text)
-                    # print(lang)
-                    # print('-------------------------------------------------------')
                     not_english.add(id)
+
     
-    print(len(not_english))
-    print(len(no_text))
-    print(len(no_text) / n_files * 100)
-    perc = (len(not_english) / n_files) * 100
-    
-    return perc
+    return not_english, no_text
 
 if __name__ == '__main__':
     keywords = utils.get_keywords('..')
-    #docs_keywords_score = get_scores('../facebook_data/facebook_posts', keywords, top_5=False)
-    #clusters,all_scores = cluster(keywords, docs_keywords_score, 6, zero_fill=True)
-    #plot_cluster('../facebook_data/kmeans_allscores_63dims.png', clusters, all_scores)
+    docs_keywords_score = get_scores('../facebook_data/facebook_posts', keywords, top_5=False)
+    # clusters,all_scores = cluster(keywords, docs_keywords_score, 5, zero_fill=True)
+    # plot_cluster('../facebook_data/kmeans_allscores_63dims.png', clusters, all_scores)
 
-    #plot_scores('../facebook_data/documents_keyword_scores.png', docs_keywords_score=docs_keywords_score)
+    plot_documents_scores('../facebook_data/documents_keyword_scores.png', docs_keywords_score=docs_keywords_score)
+    plot_keywords_scores('../facebook_data/keywords_scores.png', docs_keywords_score=docs_keywords_score, keywords=keywords)
 
-    print(perc_not_english('../facebook_data/facebook_posts'))
 

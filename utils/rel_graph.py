@@ -1,5 +1,4 @@
 import json
-from string import punctuation
 import os
 import networkx
 from ipysigma import Sigma

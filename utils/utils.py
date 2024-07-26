@@ -2,14 +2,16 @@ import json
 import os
 from time import sleep
 
-
-
 def get_keywords(d):
     keywords = []
     with open(d+'/keywords.txt', mode='r', encoding='utf-8') as f:
         keywords = f.readlines()
 
-    return keywords
+    cleaned_keywords = []
+    for keyword in keywords:
+        cleaned_keywords.append(keyword.lower().strip())
+        
+    return cleaned_keywords
 
 def scroll(driver, height, max_attempts, last_pos):
     # Try scrolling multiple times, in case the page has to load
