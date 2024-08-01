@@ -5,57 +5,10 @@ from rank_bm25 import BM25Okapi
 import json
 import os
 import utils
-from string import punctuation
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 import seaborn as sns
 import pandas as pd
-from langdetect import detect
-
-def get_new_post_data(f):
-    with open(f, mode='r', encoding='utf-8') as post:
-        post_data = json.load(post)
-    
-    exclude = set(punctuation.replace('#','').replace('@',''))
-    clean_text = ''
-    for ch in post_data['text']:
-        if ch in exclude:
-            clean_text += ' '
-        else:
-            clean_text += ch
-
-    hashtags = set()
-    mentions = set()
-    words = clean_text.split()
-    for word in words:
-        if word.startswith('@'):
-            cont_mentions = word.strip()[1:].split('@')
-            for ment in cont_mentions:
-                if ment:
-                    mentions.add(f'@{ment}')
-
-        elif word.startswith('#'):
-            cont_hashtags = word.strip()[1:].split('#')
-            for hash in cont_hashtags:
-                if hash:
-                    hashtags.add(f'#{hash.lower()}')
-    
-    post_data['hashtags'] = list(hashtags)
-    post_data['mentions'] = list(mentions)
-    post_data['keyword'] = post_data['keyword'].strip()
-    
-    return post_data
-
-def add_hash_and_mentions(posts_dir):
-
-    for file in os.listdir(posts_dir):
-        full_path = posts_dir + '/' + file
-
-        new_post_data = get_new_post_data(full_path)
-
-        with open(full_path, mode='w', encoding='utf-8') as fjson:
-            json.dump(new_post_data, fjson, indent=2)
-
 
 def get_scores(d, keywords, top_5 = False):
     docs = []
@@ -179,40 +132,37 @@ def plot_documents_scores(save_name, docs_keywords_score):
     plt.savefig(save_name)
 
 
-def perc_not_english(d):
-    not_english = set()
-    n_files = 0
-    no_text = set()
-    for file in os.listdir(d):
-        n_files += 1
-        fullpath = d+'/'+file
-        id = file.split('_')[1].split('.')[0]
-        if os.path.isfile(fullpath):
-            with open(fullpath, mode='r', encoding='utf-8') as fjson:
-                post_data = json.load(fjson)
-
-                text = post_data['text']
-                if not text:
-                    no_text.add(id)
-                    continue
-                try:
-                    lang = detect(text)
-                except:
-                    print(text)
-
-                if lang != 'en':
-                    not_english.add(id)
-
-    
-    return not_english, no_text
-
 if __name__ == '__main__':
-    keywords = utils.get_keywords('..')
-    docs_keywords_score = get_scores('../facebook_data/facebook_posts', keywords, top_5=False)
-    # clusters,all_scores = cluster(keywords, docs_keywords_score, 5, zero_fill=True)
-    # plot_cluster('../facebook_data/kmeans_allscores_63dims.png', clusters, all_scores)
+    TWEETS_DIR = "../twitter_data/tweets"
+    TWITTER_SAVE_DIR = "../twitter_data"
+    FACEBOOK_DIR = "../facebook_data/facebook_posts"
+    FACEBOOK_SAVE_DIR = "../facebook_data"
 
-    plot_documents_scores('../facebook_data/documents_keyword_scores.png', docs_keywords_score=docs_keywords_score)
-    plot_keywords_scores('../facebook_data/keywords_scores.png', docs_keywords_score=docs_keywords_score, keywords=keywords)
+    keywords = utils.get_keywords('..')
+
+    docs_keywords_score = get_scores(FACEBOOK_DIR, keywords, top_5=False)
+    top5_docs_keywords_score = get_scores(FACEBOOK_DIR, keywords, top_5=True)
+
+    clusters,all_scores = cluster(keywords, docs_keywords_score, 5, zero_fill=True)
+    plot_cluster(FACEBOOK_SAVE_DIR+'/kmeans_allscores_63dims.png', clusters, all_scores)
+
+    clusters,all_scores = cluster(keywords, top5_docs_keywords_score, 5, zero_fill=True)
+    plot_cluster(FACEBOOK_SAVE_DIR+'/kmeans_top5_63dims.png', clusters, all_scores)
+
+    plot_documents_scores(FACEBOOK_SAVE_DIR+'/documents_keyword_scores.png', docs_keywords_score=docs_keywords_score)
+    plot_keywords_scores(FACEBOOK_SAVE_DIR+'/keywords_scores.png', docs_keywords_score=docs_keywords_score, keywords=keywords)
+
+
+    docs_keywords_score = get_scores(TWEETS_DIR, keywords, top_5=False)
+    top5_docs_keywords_score = get_scores(TWEETS_DIR, keywords, top_5=True)
+
+    clusters,all_scores = cluster(keywords, docs_keywords_score, 5, zero_fill=True)
+    plot_cluster(TWITTER_SAVE_DIR+'/kmeans_allscores_63dims.png', clusters, all_scores)
+
+    clusters,all_scores = cluster(keywords, top5_docs_keywords_score, 5, zero_fill=True)
+    plot_cluster(TWITTER_SAVE_DIR+'/kmeans_top5_63dims.png', clusters, all_scores)
+
+    plot_documents_scores(TWITTER_SAVE_DIR+'/documents_keyword_scores.png', docs_keywords_score=docs_keywords_score)
+    plot_keywords_scores(TWITTER_SAVE_DIR+'/keywords_scores.png', docs_keywords_score=docs_keywords_score, keywords=keywords)
 
 

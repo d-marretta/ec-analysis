@@ -1,6 +1,5 @@
 import sys
 
-import utils.utils
 sys.path.append('/home/daniele/Documents/Thesis/utils')
 
 import urllib.parse
@@ -12,24 +11,25 @@ import pickle
 from dotenv import load_dotenv
 import json
 from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException
-from utils import utils
+import utils
 
 SCROLL_AMOUNT=700
 
 def get_tweet_data(container, query):
     try:
         username = container.find_element(By.XPATH, './/div[@data-testid="User-Name"]//span[not(contains(text(), "@"))]').text
-    except NoSuchElementException:
+    except:
         username = ""
+
 
     try:    
         tag = container.find_element(By.XPATH, './/div[@data-testid="User-Name"]//span[contains(text(), "@")]').text
-    except NoSuchElementException:
+    except:
         tag = ""
 
     try:
         tweet_date = container.find_element(By.XPATH, './/time').get_attribute('datetime')
-    except NoSuchElementException:
+    except:
         tweet_date = ""
         
     if not tag or not tweet_date:
@@ -124,7 +124,7 @@ def search_tweets(driver, query, max_tweets, save_dir, seen_ids, starting_n):
 def setup():
     # Start chrom webdriver
     options = Options()
-    options.add_argument('--headless')
+    #options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     driver = webdriver.Chrome(options=options)
@@ -145,7 +145,7 @@ def setup():
 
 def main():
     load_dotenv()
-    TWEETS_DIR = '../tweets'
+    TWEETS_DIR = '../twitter_data/tweets'
     KEYWORDS_DIR = '..'
     driver = setup()
     starting_n, seen_ids = utils.get_ids_set(TWEETS_DIR)
@@ -156,11 +156,11 @@ def main():
     curr_n = starting_n
     for keyword in keywords:
         retry = True
-        n_tweets, new_tweet_ids = search_tweets(driver, keyword.lower(), 300, TWEETS_DIR, seen_ids, curr_n)
+        n_tweets, new_tweet_ids = search_tweets(driver, keyword.lower(), 400, TWEETS_DIR, seen_ids, curr_n)
         if n_tweets == 0 and retry:
             time.sleep(120)
             retry = False
-            n_tweets, new_tweet_ids = search_tweets(driver, keyword.lower(), 300, TWEETS_DIR, seen_ids, curr_n)
+            n_tweets, new_tweet_ids = search_tweets(driver, keyword.lower(), 400, TWEETS_DIR, seen_ids, curr_n)
 
         curr_n += n_tweets
         seen_ids.update(new_tweet_ids)
