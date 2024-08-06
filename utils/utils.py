@@ -3,7 +3,8 @@ import os
 from time import sleep
 from string import punctuation
 from langdetect import detect
-
+import unicodedata
+import emoji
 
 def get_new_post_data(f):
     with open(f, mode='r', encoding='utf-8') as post:
@@ -115,11 +116,13 @@ def perc_not_english(d):
                 post_data = json.load(fjson)
 
                 text = post_data['text']
+                normalized = unicodedata.normalize('NFKD', text)
+                no_emoji = emoji.replace_emoji(normalized, replace=' ')
                 if not text:
                     no_text.add(id)
                     continue
                 try:
-                    lang = detect(text)
+                    lang = detect(no_emoji)
                 except:
                     pass
                 if lang != 'en':
@@ -145,13 +148,13 @@ if __name__ == '__main__':
 
     not_english_posts, no_text_posts = perc_not_english(FACEBOOK_DIR)
 
-    # clean_posts(TWEETS_DIR, not_english_tweets, no_text_tweets)
-    # clean_posts(FACEBOOK_DIR, not_english_posts, no_text_posts)
+    clean_posts(TWEETS_DIR, not_english_tweets, no_text_tweets)
+    clean_posts(FACEBOOK_DIR, not_english_posts, no_text_posts)
 
-    print(len(not_english_tweets))
-    print(len(no_text_tweets))
-    print(len(not_english_posts))
-    print(len(no_text_posts))
+    # print(len(not_english_tweets))
+    # print(len(no_text_tweets))
+    # print(len(not_english_posts))
+    # print(len(no_text_posts))
 
 
 

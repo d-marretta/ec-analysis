@@ -1,3 +1,5 @@
+import sys
+sys.path.append('/home/daniele/Documents/Thesis/utils')
 import matplotlib.pyplot as plt
 import numpy as np
 import string
